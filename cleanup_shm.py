@@ -2,7 +2,6 @@
 Utility to check and clean up orphaned shared memory blocks
 """
 from multiprocessing import shared_memory
-import sys
 from loguru import logger
 
 from constants import DEFAULT_SHM_NAME
@@ -55,29 +54,27 @@ def cleanup_shared_memory(name: str = DEFAULT_SHM_NAME) -> bool:
 
 
 if __name__ == "__main__":
-    import argparse
+    import typer
     
-    parser = argparse.ArgumentParser(description="Check/cleanup shared memory")
-    parser.add_argument("--name", default=DEFAULT_SHM_NAME, 
-                        help=f"Shared memory name (default: {DEFAULT_SHM_NAME})")
-    parser.add_argument("--cleanup", action="store_true",
-                        help="Clean up the shared memory")
-    parser.add_argument("--check", action="store_true",
-                        help="Only check if shared memory exists")
-    
-    args = parser.parse_args()
-    
-    if args.cleanup:
-        cleanup_shared_memory(args.name)
-    elif args.check:
-        exists = check_shared_memory(args.name)
-        sys.exit(0 if exists else 1)
-    else:
-        # Default: check and offer to cleanup
-        logger.info(f"Checking shared memory '{args.name}'...\n")
-        if check_shared_memory(args.name):
-            logger.info("\nThis might be orphaned from a previous run.")
-            logger.info("Run with --cleanup to remove it:")
-            logger.info(f"  pipenv run python cleanup_shm.py --name {args.name} --cleanup")
+    def main(
+        name: str = typer.Option(DEFAULT_SHM_NAME, help="Shared memory name"),
+        cleanup: bool = typer.Option(False, "--cleanup", help="Clean up the shared memory"),
+        check: bool = typer.Option(False, "--check", help="Only check if shared memory exists")
+    ):
+        """Check/cleanup shared memory."""
+        if cleanup:
+            cleanup_shared_memory(name)
+        elif check:
+            exists = check_shared_memory(name)
+            raise typer.Exit(code=0 if exists else 1)
         else:
-            logger.info("\nAll clear! No orphaned shared memory found.")
+            # Default: check and offer to cleanup
+            logger.info(f"Checking shared memory '{name}'...\n")
+            if check_shared_memory(name):
+                logger.info("\nThis might be orphaned from a previous run.")
+                logger.info("Run with --cleanup to remove it:")
+                logger.info(f"  pipenv run python cleanup_shm.py --name {name} --cleanup")
+            else:
+                logger.info("\nAll clear! No orphaned shared memory found.")
+    
+    typer.run(main)

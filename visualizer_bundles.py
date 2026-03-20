@@ -10,7 +10,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import time
-import sys
 from typing import List
 from loguru import logger
 
@@ -386,35 +385,30 @@ def wait_for_shm(shm_name: str, timeout: float = DEFAULT_WAIT_TIMEOUT) -> bool:
 
 
 if __name__ == "__main__":
-    import argparse
+    import typer
     
-    parser = argparse.ArgumentParser(
-        description="Visualize ImageBundle lists in column-based layout"
-    )
-    parser.add_argument("--name", type=str, default=DEFAULT_SHM_NAME,
-                        help=f"Shared memory name (default: {DEFAULT_SHM_NAME})")
-    parser.add_argument("--fps", type=int, default=DEFAULT_VISUALIZER_FPS,
-                        help=f"Target FPS for visualization (default: {DEFAULT_VISUALIZER_FPS})")
-    parser.add_argument("--max-per-page", type=int, default=DEFAULT_MAX_BUNDLES_PER_PAGE,
-                        help=f"Max bundles per page (default: {DEFAULT_MAX_BUNDLES_PER_PAGE})")
-    parser.add_argument("--wait", action="store_true",
-                        help="Wait for sender to create shared memory")
+    def main(
+        name: str = typer.Option(DEFAULT_SHM_NAME, help="Shared memory name"),
+        fps: int = typer.Option(DEFAULT_VISUALIZER_FPS, help="Target FPS for visualization"),
+        max_per_page: int = typer.Option(DEFAULT_MAX_BUNDLES_PER_PAGE, "--max-per-page", help="Max bundles per page"),
+        wait: bool = typer.Option(False, help="Wait for sender to create shared memory")
+    ):
+        """Visualize ImageBundle lists in column-based layout."""
+        # Wait for sender if requested
+        if wait:
+            if not wait_for_shm(name):
+                logger.error("Make sure the sender is running.")
+                raise typer.Exit(code=1)
+        
+        # Create and run visualizer
+        try:
+            visualizer = BundleVisualizer(name, fps, max_per_page)
+            visualizer.run()
+        except FileNotFoundError:
+            logger.error(f"\nShared memory '{name}' not found!")
+            logger.info("  Options:")
+            logger.info("    1. Start the sender first: python sender_bundles.py")
+            logger.info("    2. Use --wait flag to wait for sender")
+            raise typer.Exit(code=1)
     
-    args = parser.parse_args()
-    
-    # Wait for sender if requested
-    if args.wait:
-        if not wait_for_shm(args.name):
-            logger.error("Make sure the sender is running.")
-            sys.exit(1)
-    
-    # Create and run visualizer
-    try:
-        visualizer = BundleVisualizer(args.name, args.fps, args.max_per_page)
-        visualizer.run()
-    except FileNotFoundError:
-        logger.error(f"\nShared memory '{args.name}' not found!")
-        logger.info("  Options:")
-        logger.info("    1. Start the sender first: python sender_bundles.py")
-        logger.info("    2. Use --wait flag to wait for sender")
-        sys.exit(1)
+    typer.run(main)

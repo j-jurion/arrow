@@ -165,17 +165,15 @@ def run_sender(folder: Optional[str] = None, shm_name: str = DEFAULT_SHM_NAME,
 
 
 if __name__ == "__main__":
-    import argparse
+    import typer
     
-    parser = argparse.ArgumentParser(description="Send ImageBundle lists via shared memory")
-    parser.add_argument("--folder", type=str, default=None,
-                        help="Folder containing images (if not specified, generates test bundles)")
-    parser.add_argument("--name", type=str, default=DEFAULT_SHM_NAME,
-                        help=f"Shared memory name (default: {DEFAULT_SHM_NAME})")
-    parser.add_argument("--continuous", action="store_true",
-                        help="Continuously update (default: send once and wait)")
-    parser.add_argument("--fps", type=int, default=DEFAULT_SENDER_FPS, 
-                        help=f"Update rate in FPS when continuous (default: {DEFAULT_SENDER_FPS})")
+    def main(
+        folder: Optional[str] = typer.Option(None, help="Folder containing images (if not specified, generates test bundles)"),
+        name: str = typer.Option(DEFAULT_SHM_NAME, help="Shared memory name"),
+        continuous: bool = typer.Option(False, help="Continuously update (default: send once and wait)"),
+        fps: int = typer.Option(DEFAULT_SENDER_FPS, help="Update rate in FPS when continuous")
+    ):
+        """Send ImageBundle lists via shared memory."""
+        run_sender(folder, name, continuous, fps)
     
-    args = parser.parse_args()
-    run_sender(args.folder, args.name, args.continuous, args.fps)
+    typer.run(main)
