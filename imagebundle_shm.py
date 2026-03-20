@@ -16,6 +16,38 @@ from base import ImageBundle
 from constants import DEFAULT_SHM_SIZE
 
 
+def create_shared_memory(name: str, max_size: int = DEFAULT_SHM_SIZE) -> shared_memory.SharedMemory:
+    """
+    Create shared memory block and initialize with empty list.
+    Used by visualizer to allocate memory.
+    
+    Args:
+        name: Unique name for the shared memory block
+        max_size: Maximum size in bytes
+        
+    Returns:
+        SharedMemory object
+        
+    Raises:
+        FileExistsError: If shared memory with this name already exists
+    """
+    try:
+        shm = shared_memory.SharedMemory(create=True, size=max_size, name=name)
+        
+        # Initialize with empty list so it's always valid
+        empty_data = pickle.dumps([])
+        data_len = len(empty_data)
+        struct.pack_into('Q', shm.buf, 0, data_len)
+        shm.buf[8:8 + data_len] = empty_data
+        
+        logger.success(f"Created shared memory '{name}'")
+        logger.info(f"  - Size: {max_size:,} bytes")
+        return shm
+    except FileExistsError:
+        logger.error(f"Shared memory '{name}' already exists - please clean up first")
+        raise
+
+
 class ImageBundleListSender:
     """
     Manages shared memory for sending lists of ImageBundle objects.
@@ -23,28 +55,26 @@ class ImageBundleListSender:
     
     def __init__(self, name: str, max_size: int = DEFAULT_SHM_SIZE):
         """
-        Create or reuse shared memory block for ImageBundle list data.
+        Connect to existing shared memory block for sending data.
         
         Args:
-            name: Unique name for the shared memory block
-            max_size: Maximum size in bytes for the shared memory (default: 100MB)
+            name: Name of the shared memory block (must already exist)
+            max_size: Maximum size for reference (not enforced on existing memory)
+        
+        Raises:
+            FileNotFoundError: If shared memory doesn't exist
         """
         self.name = name
         self.max_size = max_size
         self.closed = False
         
-        # Try to create new shared memory
+        # Connect to existing shared memory (created by visualizer)
         try:
-            self.shm = shared_memory.SharedMemory(
-                create=True,
-                size=max_size,
-                name=name
-            )
-        except FileExistsError:
-            # Shared memory already exists, reuse it
             self.shm = shared_memory.SharedMemory(name=name)
-            # Note: We can't verify the size of existing shared memory,
-            # so we just reuse whatever size it has
+            logger.success(f"Connected to shared memory '{name}'")
+        except FileNotFoundError:
+            logger.error(f"Shared memory '{name}' not found - start visualizer first")
+            raise
         
         # Ensure buffer is valid before creating views
         if self.shm.buf is None:
@@ -52,9 +82,6 @@ class ImageBundleListSender:
         
         self.arrow_buffer = pa.py_buffer(self.shm.buf)
         self.buf_view = memoryview(self.shm.buf)
-        
-        logger.success(f"Created shared memory '{name}'")
-        logger.info(f"  - Max size: {max_size:,} bytes")
     
     def send(self, bundles: List[ImageBundle]):
         """
@@ -91,7 +118,7 @@ class ImageBundleListSender:
         self.buf_view[8:8 + data_len] = data
     
     def cleanup(self):
-        """Clean up shared memory resources"""
+        """Clean up sender resources (does NOT unlink shared memory)."""
         if not self.closed:
             # Delete our references first
             del self.buf_view
@@ -112,11 +139,7 @@ class ImageBundleListSender:
             except (BufferError, Exception):
                 pass
             
-            try:
-                self.shm.unlink()
-            except Exception:
-                pass
-            
+            # Note: We do NOT unlink - visualizer owns the memory
             self.closed = True
     
     def __enter__(self):
@@ -240,8 +263,12 @@ if __name__ == "__main__":
     
     test_shm_name = "test_bundle_shm"
     
-    # Test sender
-    logger.info("Creating sender...")
+    # Create shared memory first (simulating visualizer)
+    logger.info("Creating shared memory (as visualizer would)...")
+    test_shm = create_shared_memory(test_shm_name)
+    
+    # Test sender (connects to existing memory)
+    logger.info("\nCreating sender (connects to existing memory)...")
     sender = ImageBundleListSender(test_shm_name)
     
     logger.info(f"\nSending {len(test_bundles)} bundles...")
@@ -263,8 +290,10 @@ if __name__ == "__main__":
         logger.info(f"    Source shape: {bundle.source_image.shape}")
         logger.info(f"    Processed: {list(bundle.processed_images.keys())}")
     
-    # Cleanup
+    # Cleanup (simulating visualizer cleanup)
     logger.info("\nCleaning up...")
     receiver.cleanup()
     sender.cleanup()
+    test_shm.close()
+    test_shm.unlink()
     logger.success("Test complete")

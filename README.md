@@ -16,7 +16,19 @@ The ImageBundle system allows you to send lists of `ImageBundle` objects (source
 
 ## Quick Start
 
-### 1. Start the Sender
+**Important:** The visualizer must be started first as it creates and manages the shared memory.
+
+### 1. Start the Visualizer
+
+```bash
+pipenv run python visualizer_bundles.py
+```
+
+**Keyboard Controls:**
+- **← →** - Navigate between pages
+- **ESC** - Close window
+
+### 2. Start the Sender
 
 **Generate test bundles:**
 ```bash
@@ -28,15 +40,7 @@ pipenv run python sender_bundles.py
 pipenv run python sender_bundles.py --folder /path/to/images
 ```
 
-### 2. Start the Visualizer
-
-```bash
-pipenv run python visualizer_bundles.py --wait
-```
-
-**Keyboard Controls:**
-- **← →** - Navigate between pages
-- **ESC** - Close window
+**Note:** The sender will display an error if the visualizer isn't running. Always start the visualizer first.
 
 ## Project Structure
 
@@ -64,27 +68,30 @@ class ImageBundle(NamedTuple):
 ### Load Images from Folder
 
 ```bash
-# Terminal 1 - Send bundles from folder
-pipenv run python sender_bundles.py --folder /path/to/images
+# Terminal 1 - Start visualizer first (creates shared memory)
+pipenv run python visualizer_bundles.py
 
-# Terminal 2 - Visualize
-pipenv run python visualizer_bundles.py --wait
+# Terminal 2 - Send bundles from folder
+pipenv run python sender_bundles.py --folder /path/to/images
 ```
 
 ### Generate Test Bundles
 
 ```bash
-# Terminal 1 - Send 3 test bundles
-pipenv run python sender_bundles.py
-
-# Terminal 2 - Visualize with pagination (10 bundles per page)
+# Terminal 1 - Start visualizer (10 bundles per page)
 pipenv run python visualizer_bundles.py --max-per-page 10
+
+# Terminal 2 - Send 3 test bundles
+pipenv run python sender_bundles.py
 ```
 
 ### Continuous Mode
 
 ```bash
-# Continuously update at 5 FPS
+# Terminal 1 - Start visualizer
+pipenv run python visualizer_bundles.py
+
+# Terminal 2 - Continuously update at 5 FPS
 pipenv run python sender_bundles.py --folder /path/to/images --continuous --fps 5
 ```
 
@@ -203,34 +210,48 @@ DEFAULT_MAX_BUNDLES_PER_PAGE = 15
 
 ### Orphaned Shared Memory
 
-If the sender crashes, clean up orphaned shared memory:
+If the visualizer crashes without cleaning up, remove orphaned shared memory:
 
 ```bash
 pipenv run python cleanup_shm.py --cleanup
 ```
 
-### "Shared memory not found"
+### "Shared memory not found" (Sender Error)
 
-Make sure the sender is running before starting the visualizer, or use `--wait`:
+The sender cannot find shared memory because the visualizer isn't running. **Always start the visualizer first:**
 
 ```bash
-pipenv run python visualizer_bundles.py --wait
+# Terminal 1 - Start visualizer first
+pipenv run python visualizer_bundles.py
+
+# Terminal 2 - Then start sender
+pipenv run python sender_bundles.py
 ```
+
+### "Shared memory already exists" (Visualizer Error)
+
+Shared memory from a previous run wasn't cleaned up. Clean it up first:
+
+```bash
+pipenv run python cleanup_shm.py --cleanup
+```
+
+Then restart the visualizer.
 
 ### Out of Memory
 
-If bundles are too large, reduce the number per update or increase `max_size`:
+If bundles are too large, increase the shared memory size when starting the visualizer:
 
 ```python
-sender = ImageBundleListSender("my_shm", max_size=200_000_000)  # 200 MB
+visualizer = BundleVisualizer("my_shm", max_size=200_000_000)  # 200 MB
 ```
 
 ## Stopping
 
-- Press **Ctrl+C** in the terminal, or
-- **Close** the matplotlib window
+- **Visualizer**: Press **ESC** or close the matplotlib window - automatically cleans up shared memory
+- **Sender**: Press **Ctrl+C** - closes connection without unlinking memory
 
-Both sender and visualizer will cleanup shared memory properly.
+The visualizer manages shared memory cleanup. When you close it, memory is automatically freed.
 --fps N          # Update rate in FPS for continuous mode (default: 2)
 ```
 

@@ -2,7 +2,6 @@
 Sender for ImageBundle lists - Creates and sends multiple ImageBundles to shared memory
 """
 import numpy as np
-import time
 from typing import Optional, List
 from PIL import Image
 import os
@@ -12,7 +11,6 @@ from imagebundle_shm import ImageBundleListSender
 from base import ImageBundle
 from constants import (
     DEFAULT_SHM_NAME,
-    DEFAULT_SENDER_FPS,
     DEFAULT_TEST_BUNDLE_COUNT,
     DEFAULT_TEST_IMAGE_SIZE,
     SUPPORTED_IMAGE_EXTENSIONS
@@ -84,78 +82,41 @@ def generate_test_bundles_from_folder(folder: str) -> List[ImageBundle]:
     return bundles
 
 
-def run_sender(folder: Optional[str] = None, shm_name: str = DEFAULT_SHM_NAME, 
-               continuous: bool = False, fps: int = DEFAULT_SENDER_FPS) -> None:
+def run_sender(folder: Optional[str] = None, shm_name: str = DEFAULT_SHM_NAME) -> None:
     """
     Run sender that sends ImageBundle list to shared memory.
     
     Args:
         folder: Folder path containing images (if None, generates test bundles)
-        shm_name: Name of shared memory block
-        continuous: If True, continuously update; if False, send once and exit
-        fps: Update rate (frames per second) - only used if continuous=True
+        shm_name: Name of shared memory block (must be created by visualizer first)
     """
-    sender = ImageBundleListSender(shm_name)
+    try:
+        sender = ImageBundleListSender(shm_name)
+    except FileNotFoundError:
+        logger.error(f"Shared memory '{shm_name}' not found!")
+        logger.info("The visualizer must be started first to create shared memory.")
+        logger.info("  1. Start visualizer: pipenv run python visualizer_bundles.py")
+        logger.info("  2. Then start sender: pipenv run python sender_bundles.py")
+        return
     
     try:
-        frame_count = 0
-        start_time = time.time()
-        frame_interval = 1.0 / fps if continuous else 0
+        # Generate bundles
+        if folder:
+            bundles = generate_test_bundles_from_folder(folder=folder)
+        else:
+            # Fallback to test bundles
+            bundles = [
+                generate_test_bundle(f"image_{i + 1}.jpg")
+                for i in range(DEFAULT_TEST_BUNDLE_COUNT)
+            ]
         
-        while True:
-            frame_start = time.time()
-            
-            # Generate bundles
-            if folder:
-                bundles = generate_test_bundles_from_folder(folder=folder)
-            else:
-                # Fallback to test bundles
-                bundles = [
-                    generate_test_bundle(f"image_{i + 1}.jpg")
-                    for i in range(DEFAULT_TEST_BUNDLE_COUNT)
-                ]
-            
-            num_bundles = len(bundles)
-            
-            # First frame - log startup message
-            if frame_count == 0:
-                if continuous:
-                    logger.info(f"\nLoaded {num_bundles} ImageBundles from {folder if folder else 'generated test data'}")
-                    logger.info(f"Sending continuously at {fps} FPS...")
-                    logger.info("Press Ctrl+C to stop\n")
-                else:
-                    logger.info(f"\nLoaded {num_bundles} ImageBundles from {folder if folder else 'generated test data'}")
-                    logger.info("Sending to shared memory...")
-            
-            # Send to shared memory
-            sender.send(bundles)
-            
-            frame_count += 1
-            elapsed = time.time() - start_time
-            
-            if continuous:
-                actual_fps = frame_count / elapsed if elapsed > 0 else 0
-                # Use raw print for status line with carriage return
-                print(f"Frame {frame_count:5d} | "
-                      f"Bundles: {num_bundles} | "
-                      f"Elapsed: {elapsed:6.1f}s | "
-                      f"FPS: {actual_fps:6.2f}", end='\r')
-            else:
-                logger.success(f"Sent {num_bundles} bundles")
-                logger.info("\nKeeping shared memory alive...")
-                logger.info("Press Ctrl+C to cleanup and exit\n")
-            
-            # If not continuous, send once and wait
-            if not continuous:
-                # Keep alive until interrupted
-                while True:
-                    time.sleep(1)
-            
-            # Sleep to maintain target FPS
-            frame_time = time.time() - frame_start
-            sleep_time = max(0, frame_interval - frame_time)
-            if sleep_time > 0:
-                time.sleep(sleep_time)
+        num_bundles = len(bundles)
+        logger.info(f"\nLoaded {num_bundles} ImageBundles from {folder if folder else 'generated test data'}")
+        logger.info("Sending to shared memory...")
+        
+        # Send to shared memory
+        sender.send(bundles)
+        logger.success(f"Sent {num_bundles} bundles")
         
     except KeyboardInterrupt:
         logger.info("\n\nStopping...")
@@ -169,11 +130,9 @@ if __name__ == "__main__":
     
     def main(
         folder: Optional[str] = typer.Option(None, help="Folder containing images (if not specified, generates test bundles)"),
-        name: str = typer.Option(DEFAULT_SHM_NAME, help="Shared memory name"),
-        continuous: bool = typer.Option(False, help="Continuously update (default: send once and wait)"),
-        fps: int = typer.Option(DEFAULT_SENDER_FPS, help="Update rate in FPS when continuous")
+        name: str = typer.Option(DEFAULT_SHM_NAME, help="Shared memory name")
     ):
-        """Send ImageBundle lists via shared memory."""
-        run_sender(folder, name, continuous, fps)
+        """Send ImageBundle list via shared memory."""
+        run_sender(folder, name)
     
     typer.run(main)

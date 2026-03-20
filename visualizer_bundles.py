@@ -13,7 +13,7 @@ import time
 from typing import List
 from loguru import logger
 
-from imagebundle_shm import ImageBundleListReceiver
+from imagebundle_shm import ImageBundleListReceiver, create_shared_memory
 from base import ImageBundle
 from constants import (
     DEFAULT_SHM_NAME,
@@ -29,22 +29,27 @@ class BundleVisualizer:
     """
     
     def __init__(self, shm_name: str = DEFAULT_SHM_NAME, fps: int = DEFAULT_VISUALIZER_FPS, 
-                 max_bundles_per_page: int = DEFAULT_MAX_BUNDLES_PER_PAGE):
+                 max_bundles_per_page: int = DEFAULT_MAX_BUNDLES_PER_PAGE, max_size: int = 100_000_000):
         """
-        Initialize the visualizer.
+        Initialize the visualizer and create shared memory.
         
         Args:
             shm_name: Name of shared memory block
             fps: Target refresh rate
             max_bundles_per_page: Maximum bundles per page before pagination (default: 15)
+            max_size: Maximum size of shared memory in bytes (default: 100MB)
         """
         self.shm_name = shm_name
         self.fps = fps
         self.frame_interval = 1.0 / fps
         self.max_bundles_per_page = max_bundles_per_page
         
-        # Connect to shared memory
-        logger.info(f"Connecting to shared memory '{shm_name}'...")
+        # Create shared memory (visualizer owns it)
+        logger.info(f"Creating shared memory '{shm_name}'...")
+        self.shared_memory = create_shared_memory(shm_name, max_size)
+        
+        # Connect to shared memory as receiver
+        logger.info(f"Connecting receiver to shared memory '{shm_name}'...")
         self.receiver = ImageBundleListReceiver(shm_name)
         
         # Get initial bundles to determine layout
@@ -55,6 +60,17 @@ class BundleVisualizer:
         self.num_bundles = len(self.bundles)
         self.process_names = self._get_all_process_names()
         self.num_processes = len(self.process_names)
+        
+        # Track source image shape for detecting dimension changes
+        self._last_source_shape = self.bundles[0].source_image.shape if self.bundles else None
+        
+        # Track processed image dimensions for detecting 2D/3D changes
+        self._last_processed_dims = {}
+        if self.bundles:
+            for pname in self.process_names:
+                if pname in self.bundles[0].processed_images:
+                    img = self.bundles[0].processed_images[pname]
+                    self._last_processed_dims[pname] = (img.shape, img.ndim)
         
         logger.info(f"  - Bundles: {self.num_bundles}")
         logger.info(f"  - Processes: {self.process_names}")
@@ -81,6 +97,13 @@ class BundleVisualizer:
     
     def _calculate_pagination(self):
         """Calculate pagination based on max bundles per page."""
+        # Handle empty bundles case
+        if self.num_bundles == 0:
+            self.bundles_per_page = 0
+            self.total_pages = 0
+            logger.warning("No bundles found - waiting for sender to provide data")
+            return
+        
         # Use configured bundles per page
         self.bundles_per_page = min(self.max_bundles_per_page, self.num_bundles)
         
@@ -248,7 +271,7 @@ class BundleVisualizer:
                          fontsize=8, style='italic', 
                          bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
     
-    def update_frame(self):
+    def _update_frame(self):
         """Update all images with new data from shared memory."""
         try:
             # Get new bundles
@@ -258,6 +281,7 @@ class BundleVisualizer:
             self.bundles = self.receiver.get()
             self.num_bundles = len(self.bundles)
             self.process_names = self._get_all_process_names()
+            self.num_processes = len(self.process_names)
             
             # Check if structure changed (number of bundles or process names)
             structure_changed = (
@@ -283,21 +307,29 @@ class BundleVisualizer:
             # Update source images
             for col_idx, bundle in enumerate(page_bundles):
                 if ('source', col_idx) in self.img_objects:
-                    img_obj = self.img_objects[('source', col_idx)]
-                    img_obj.set_data(bundle.source_image)
-                    
-                    # Update filename if changed
-                    ax = self.axes[('source', col_idx)]
-                    ax.set_title(bundle.filename, fontsize=10, fontweight='bold', pad=2)
+                    try:
+                        img_obj = self.img_objects[('source', col_idx)]
+                        img_obj.set_data(bundle.source_image)
+                        
+                        # Update filename if changed
+                        ax = self.axes[('source', col_idx)]
+                        ax.set_title(bundle.filename, fontsize=10, fontweight='bold', pad=2)
+                    except Exception as e:
+                        logger.error(f"Error updating source image at col {col_idx}: {e}")
+                        logger.error(f"  Image shape: {bundle.source_image.shape}")
             
             # Update processed images
             for process_name in self.process_names:
                 for col_idx, bundle in enumerate(page_bundles):
                     if (process_name, col_idx) in self.img_objects:
                         if process_name in bundle.processed_images:
-                            proc_img = bundle.processed_images[process_name]
-                            img_obj = self.img_objects[(process_name, col_idx)]
-                            img_obj.set_data(proc_img)
+                            try:
+                                proc_img = bundle.processed_images[process_name]
+                                img_obj = self.img_objects[(process_name, col_idx)]
+                                img_obj.set_data(proc_img)
+                            except Exception as e:
+                                logger.error(f"Error updating {process_name} at col {col_idx}: {e}")
+                                logger.error(f"  Image shape: {proc_img.shape}")
             
             # Update stats
             self.frame_count += 1
@@ -316,7 +348,7 @@ class BundleVisualizer:
             while plt.fignum_exists(self.fig.number):
                 frame_start = time.time()
                 
-                self.update_frame()
+                self._update_frame()
                 
                 # Refresh display
                 self.fig.canvas.draw_idle()
@@ -345,7 +377,34 @@ class BundleVisualizer:
             logger.info("\n\nStopping visualization...")
         finally:
             plt.close(self.fig)
-            self.receiver.cleanup()
+            
+            # Delete all references to bundles (they may hold PyArrow buffer references)
+            if hasattr(self, 'bundles'):
+                del self.bundles
+            
+            # Clean up receiver and delete the object
+            if hasattr(self, 'receiver'):
+                self.receiver.cleanup()
+                del self.receiver
+            
+            # Clean up shared memory (visualizer owns it)
+            import gc
+            try:
+                # Force garbage collection to release all references
+                gc.collect()
+                
+                # Release the internal buffer if it exists
+                if hasattr(self.shared_memory, '_buf') and self.shared_memory._buf is not None:
+                    try:
+                        self.shared_memory._buf.release()
+                    except (BufferError, Exception):
+                        pass
+                
+                self.shared_memory.close()
+                self.shared_memory.unlink()
+                logger.success("Shared memory cleaned up")
+            except Exception as e:
+                logger.warning(f"Error cleaning up shared memory: {e}")
             
             elapsed = time.time() - self.start_time
             actual_fps = self.frame_count / elapsed if elapsed > 0 else 0
@@ -358,6 +417,9 @@ def wait_for_shm(shm_name: str, timeout: float = DEFAULT_WAIT_TIMEOUT) -> bool:
     """
     Wait for shared memory to be created.
     
+    NOTE: This function is deprecated - visualizer now creates the memory.
+    Kept for backwards compatibility.
+    
     Args:
         shm_name: Name of shared memory to wait for
         timeout: Maximum seconds to wait
@@ -367,21 +429,17 @@ def wait_for_shm(shm_name: str, timeout: float = DEFAULT_WAIT_TIMEOUT) -> bool:
     """
     from multiprocessing import shared_memory
     
-    logger.info(f"Waiting for shared memory '{shm_name}'...")
-    start_time = time.time()
+    logger.warning("wait_for_shm is deprecated - visualizer creates memory on startup")
+    logger.info(f"Checking if shared memory '{shm_name}' exists...")
     
-    while time.time() - start_time < timeout:
-        try:
-            # Just check if shared memory exists, don't create receiver
-            shm = shared_memory.SharedMemory(name=shm_name)
-            shm.close()  # Just close, don't unlink
-            logger.success(f"Found after {time.time() - start_time:.1f}s")
-            return True
-        except FileNotFoundError:
-            time.sleep(0.5)
-    
-    logger.error(f"Timeout after {timeout}s")
-    return False
+    try:
+        shm = shared_memory.SharedMemory(name=shm_name)
+        shm.close()
+        logger.success(f"Shared memory '{shm_name}' already exists")
+        return True
+    except FileNotFoundError:
+        logger.info(f"Shared memory '{shm_name}' does not exist - will be created")
+        return False
 
 
 if __name__ == "__main__":
@@ -391,24 +449,22 @@ if __name__ == "__main__":
         name: str = typer.Option(DEFAULT_SHM_NAME, help="Shared memory name"),
         fps: int = typer.Option(DEFAULT_VISUALIZER_FPS, help="Target FPS for visualization"),
         max_per_page: int = typer.Option(DEFAULT_MAX_BUNDLES_PER_PAGE, "--max-per-page", help="Max bundles per page"),
-        wait: bool = typer.Option(False, help="Wait for sender to create shared memory")
+        wait: bool = typer.Option(False, help="Check if shared memory exists (deprecated)")
     ):
         """Visualize ImageBundle lists in column-based layout."""
-        # Wait for sender if requested
+        # Check/warn about existing memory
         if wait:
-            if not wait_for_shm(name):
-                logger.error("Make sure the sender is running.")
-                raise typer.Exit(code=1)
+            wait_for_shm(name)
         
-        # Create and run visualizer
+        # Create and run visualizer (creates shared memory)
         try:
             visualizer = BundleVisualizer(name, fps, max_per_page)
             visualizer.run()
-        except FileNotFoundError:
-            logger.error(f"\nShared memory '{name}' not found!")
+        except FileExistsError:
+            logger.error(f"\nShared memory '{name}' already exists!")
             logger.info("  Options:")
-            logger.info("    1. Start the sender first: python sender_bundles.py")
-            logger.info("    2. Use --wait flag to wait for sender")
+            logger.info("    1. Clean it up: pipenv run python cleanup_shm.py --cleanup")
+            logger.info("    2. Use a different name: --name my_custom_name")
             raise typer.Exit(code=1)
     
     typer.run(main)
