@@ -61,7 +61,7 @@ pipenv run python visualizer_bundles.py
 Options:
 - `--fps N` - Refresh rate (default: 10)
 - `--name NAME` - Shared memory name (default: bundle_shm)
-- `--max-width N` - Max width in pixels before pagination (default: 3000)
+- `--max-per-page N` - Max bundles per page (default: 15)
 - `--wait` - Wait for sender to start
 
 **Keyboard Controls:**

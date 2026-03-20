@@ -21,19 +21,19 @@ class BundleVisualizer:
     Matplotlib visualizer for ImageBundle lists with column-based layout.
     """
     
-    def __init__(self, shm_name: str = "bundle_shm", fps: int = 10, max_width: int = 3000):
+    def __init__(self, shm_name: str = "bundle_shm", fps: int = 10, max_bundles_per_page: int = 15):
         """
         Initialize the visualizer.
         
         Args:
             shm_name: Name of shared memory block
             fps: Target refresh rate
-            max_width: Maximum width in pixels before pagination (default: 3000)
+            max_bundles_per_page: Maximum bundles per page before pagination (default: 15)
         """
         self.shm_name = shm_name
         self.fps = fps
         self.frame_interval = 1.0 / fps
-        self.max_width = max_width
+        self.max_bundles_per_page = max_bundles_per_page
         
         # Connect to shared memory
         print(f"Connecting to shared memory '{shm_name}'...")
@@ -72,12 +72,9 @@ class BundleVisualizer:
         return sorted(list(all_names))
     
     def _calculate_pagination(self):
-        """Calculate how many bundles per page based on max_width."""
-        # Estimate width per bundle (assuming ~200 pixels per image)
-        estimated_width_per_bundle = 200
-        
-        # Calculate bundles per page
-        self.bundles_per_page = max(1, int(self.max_width / estimated_width_per_bundle))
+        """Calculate pagination based on max bundles per page."""
+        # Use configured bundles per page
+        self.bundles_per_page = min(self.max_bundles_per_page, self.num_bundles)
         
         # Calculate total pages
         self.total_pages = (self.num_bundles + self.bundles_per_page - 1) // self.bundles_per_page
@@ -125,10 +122,24 @@ class BundleVisualizer:
         num_rows = 1 + self.num_processes
         num_cols_page = min(self.bundles_per_page, self.num_bundles - self.current_page * self.bundles_per_page)
         
-        # Create figure
-        fig_width = max(8, num_cols_page * 3)
-        fig_height = max(6, num_rows * 2.5)
+        # Create figure with compact dimensions
+        # Width: scale with number of columns
+        col_width = 2.0  # inches per column
+        fig_width = max(8, num_cols_page * col_width)
+        
+        # Height: Just enough for the content without extra space
+        # Use a small fixed height per row to keep it compact
+        row_height = 1.5  # Small height per row
+        fig_height = num_rows * row_height
+        
+        # Add small space for help text if multiple pages
+        if self.total_pages > 1:
+            fig_height += 0.3  # Small additional height for help text
+        
         self.fig = plt.figure(figsize=(fig_width, fig_height))
+        
+        # Remove all padding around the figure
+        self.fig.subplots_adjust(left=0, right=1, top=1, bottom=0, hspace=0, wspace=0)
         
         # Connect keyboard events
         self.fig.canvas.mpl_connect('key_press_event', self._on_key_press)
@@ -146,13 +157,13 @@ class BundleVisualizer:
         num_cols_page = len(page_bundles)
         num_rows = 1 + self.num_processes
         
-        # Create grid with space for row labels
-        # We'll use a GridSpec with extra column on left for labels
+        # Create grid with space for row labels - minimal spacing
         gs = GridSpec(num_rows, num_cols_page + 1, 
                      figure=self.fig,
                      width_ratios=[0.5] + [1] * num_cols_page,  # Narrow label column
+                     height_ratios=[1] * num_rows,  # All rows equal height
                      hspace=0, wspace=0,
-                     left=0.02, right=0.98, top=0.98, bottom=0.02)
+                     left=0, right=1, top=1, bottom=0)
         
         # Store axes and image objects
         self.axes = {}
@@ -224,8 +235,10 @@ class BundleVisualizer:
         if self.total_pages > 1:
             help_text = (f"Page {self.current_page + 1}/{self.total_pages} | "
                         f"<- -> to navigate | ESC to close")
-            self.fig.text(0.5, 0.005, help_text, ha='center', va='bottom',
-                         fontsize=9, style='italic')
+            # Position text in figure coordinates (outside the axes area)
+            self.fig.text(0.5, 0.01, help_text, ha='center', va='bottom',
+                         fontsize=8, style='italic', 
+                         bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
     
     def update_frame(self):
         """Update all images with new data from shared memory."""
@@ -246,7 +259,6 @@ class BundleVisualizer:
             
             if structure_changed:
                 # Recalculate pagination
-                old_total_pages = self.total_pages
                 self._calculate_pagination()
                 
                 # Adjust current page if now out of range
@@ -370,8 +382,8 @@ if __name__ == "__main__":
                         help="Shared memory name (default: bundle_shm)")
     parser.add_argument("--fps", type=int, default=10,
                         help="Target FPS for visualization (default: 10)")
-    parser.add_argument("--max-width", type=int, default=3000,
-                        help="Max width in pixels before pagination (default: 3000)")
+    parser.add_argument("--max-per-page", type=int, default=15,
+                        help="Max bundles per page (default: 15)")
     parser.add_argument("--wait", action="store_true",
                         help="Wait for sender to create shared memory")
     
@@ -385,7 +397,7 @@ if __name__ == "__main__":
     
     # Create and run visualizer
     try:
-        visualizer = BundleVisualizer(args.name, args.fps, args.max_width)
+        visualizer = BundleVisualizer(args.name, args.fps, args.max_per_page)
         visualizer.run()
     except FileNotFoundError:
         print("\n[ERROR] Shared memory '{args.name}' not found!")

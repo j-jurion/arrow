@@ -85,6 +85,10 @@ class ImageBundleListSender:
     def cleanup(self):
         """Clean up shared memory resources"""
         if not self.closed:
+            # Delete references to allow proper cleanup
+            del self.buf_view
+            del self.arrow_buffer
+            
             try:
                 self.shm.close()
             except (BufferError, Exception):
@@ -160,10 +164,15 @@ class ImageBundleListReceiver:
     def cleanup(self):
         """Clean up shared memory resources"""
         if not self.closed:
+            # Delete references to allow proper cleanup
+            del self.buf_view
+            del self.arrow_buffer
+            
             try:
                 self.shm.close()
             except (BufferError, Exception):
                 pass
+            
             self.closed = True
     
     def __enter__(self):

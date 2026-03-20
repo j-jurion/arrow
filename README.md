@@ -1,264 +1,152 @@
-# PyArrow Shared Memory Example
+# ImageBundle Visualization System
 
-Zero-copy image sharing between processes using Python's native `multiprocessing.shared_memory` and PyArrow.
+Share and visualize image processing results using shared memory with PyArrow.
 
-## Architecture
+## Overview
 
-- **Sender**: Creates a `SharedMemory` block and writes numpy array data
-- **Visualizer**: Opens the same `SharedMemory` by name and reads with zero-copy
+Send lists of `ImageBundle` objects (source image + processed versions) through shared memory and display them in a column-based matplotlib layout.
 
 ## Key Features
 
-✓ **Zero-copy** - Visualizer directly accesses shared memory without data duplication  
-✓ **PyArrow integration** - Uses `pa.py_buffer(shm.buf)` to wrap shared memory  
-✓ **Native Python** - Uses `multiprocessing.shared_memory` (Python 3.8+)  
-✓ **Cross-process** - Works between independent Python processes  
-✓ **High performance** - Suitable for real-time image streaming (30+ FPS)  
-✓ **Visual display** - Real-time matplotlib visualization with live statistics
+✓ **ImageBundle Support** - Share source images with multiple processed versions  
+✓ **Column Layout** - Each bundle displayed as a column with process labels  
+✓ **Pagination** - Automatic pagination for many images with keyboard navigation  
+✓ **Shared Memory** - Efficient inter-process communication via PyArrow  
+✓ **Dynamic Updates** - Automatically adapts to changing bundle counts  
+✓ **Folder Loading** - Load images directly from disk folders  
 
 ## Quick Start
 
-### Test Installation
+### 1. Start the Sender
 
-Verify everything works:
+Send test bundles:
 ```bash
-pipenv run python test_shm.py
+pipenv run python sender_bundles.py
 ```
 
-### See It In Action (Matplotlib Visualization)
-
-**Option 1: Start sender first (classic approach)**
+Load images from a folder:
 ```bash
-# Terminal 1
-pipenv run python sender_continuous.py --fps 30
-
-# Terminal 2
-pipenv run python visualizer_continuous.py --plot
+pipenv run python sender_bundles.py --folder /path/to/images
 ```
 
-**Option 2: Start visualizer first (it waits for sender)**
-```bash
-# Terminal 1
-pipenv run python visualizer_continuous.py --plot --wait
+### 2. Start the Visualizer
 
-# Terminal 2 (start anytime within 30 seconds)
-pipenv run python sender_continuous.py --fps 30
+```bash
+pipenv run python visualizer_bundles.py --wait
 ```
 
-The `--wait` flag makes the visualizer wait for the sender - **start in any order!**
+**Keyboard Controls:**
+- **← →** - Navigate between pages
+- **ESC** - Close window
 
-### Simple Example (Static Image)
+## Project Structure
 
-**Terminal 1 - Start sender:**
-```bash
-pipenv run python sender.py
+```
+├── base.py                  # ImageBundle class definition
+├── imagebundle_shm.py       # Shared memory serialization
+├── sender_bundles.py        # Send ImageBundles to shared memory
+├── visualizer_bundles.py    # Visualize ImageBundles in matplotlib
+├── cleanup_shm.py           # Cleanup utility for shared memory
+└── IMAGEBUNDLE.md          # Detailed documentation
 ```
 
-**Terminal 2 - Start visualizer:**
-```bash
-pipenv run python visualizer.py
+## ImageBundle Structure
+
+```python
+class ImageBundle(NamedTuple):
+    source_image: np.ndarray              # Original image
+    processed_images: dict[str, np.ndarray]  # Processed versions
+    filename: str                         # Image filename
 ```
 
-### Advanced Example (Continuous Updates)
+## Usage Examples
 
-**Terminal 1 - Start continuous sender:**
+## Usage Examples
+
+### Load Images from Folder
+
 ```bash
-pipenv run python sender_continuous.py --fps 30
+# Terminal 1 - Send bundles from folder
+pipenv run python sender_bundles.py --folder /path/to/images
+
+# Terminal 2 - Visualize
+pipenv run python visualizer_bundles.py --wait
 ```
 
-**Terminal 2 - Start continuous visualizer:**
+### Generate Test Bundles
+
 ```bash
-pipenv run python visualizer_continuous.py
+# Terminal 1 - Send 3 test bundles
+pipenv run python sender_bundles.py
+
+# Terminal 2 - Visualize with pagination (10 bundles per page)
+pipenv run python visualizer_bundles.py --max-per-page 10
 ```
 
-This demonstrates real-time image streaming with zero-copy access!
+### Continuous Mode
+
+```bash
+# Continuously update at 5 FPS
+pipenv run python sender_bundles.py --folder /path/to/images --continuous --fps 5
+```
 
 ## Command Options
 
-### Sender (Static)
-```bash
-# Keeps shared memory alive until Ctrl+C
-pipenv run python sender.py
-```
-
-### Sender (Continuous)
-```bash
-# Stream at 30 FPS
-pipenv run python sender_continuous.py --fps 30
-
-# Stream for 60 seconds
-pipenv run python sender_continuous.py --fps 30 --duration 60
-```
-
-### Visualizer (Static)
-```bash
-# Read continuously
-pipenv run python visualizer.py
-
-# Read once and exit
-pipenv run python visualizer.py --once
-
-# Custom shared memory name
-pipenv run python visualizer.py --name my_shm
-```
-
-### Visualizer (Continuous)
-```bash
-# Terminal output with statistics
-pipenv run python visualizer_continuous.py
-
-# Matplotlib window visualization
-pipenv run python visualizer_continuous.py --plot
-
-# WAIT for sender (start visualizer first!)
-pipenv run python visualizer_continuous.py --plot --wait
-
-# Adjust plot refresh rate
-pipenv run python visualizer_continuous.py --plot --fps 60
-
-# Read once and exit
-pipenv run python visualizer_continuous.py --once
-
-# Minimal output
-pipenv run python visualizer_continuous.py --no-stats
-```
-
-## How It Works
-
-### Sender Side
-
-```python
-# 1. Create SharedMemory block
-shm = shared_memory.SharedMemory(create=True, size=total_size, name="arrow_shm")
-
-# 2. Wrap with PyArrow buffer
-arrow_buffer = pa.py_buffer(shm.buf)
-
-# 3. Write numpy array to shared memory
-memoryview(shm.buf)[offset:] = image.tobytes()
-```
-
-### Visualizer Side
-
-```python
-# 1. Open existing SharedMemory by name
-shm = shared_memory.SharedMemory(name="arrow_shm")
-
-# 2. Wrap with PyArrow buffer (zero-copy)
-arrow_buffer = pa.py_buffer(shm.buf)
-
-# 3. Create numpy array view (zero-copy)
-image = np.ndarray(shape, dtype=dtype, buffer=shm.buf[offset:])
-```
-
-## Memory Layout
-
-The shared memory contains:
-```
-[dtype_code: 1 byte]
-[ndim: 1 byte]
-[dim_0: 8 bytes]
-[dim_1: 8 bytes]
-...
-[image_data: width * height * channels bytes]
-```
-
-## Benefits
-
-1. **No serialization overhead** - Direct memory access
-2. **No data copying** - Visualizer reads directly from sender's memory
-3. **High performance** - Suitable for high-frequency image streaming
-4. **Simple API** - Uses Python's standard library
-
-## 🎨 Visual Display
-
-The visualizer now supports real-time visualization using matplotlib!
+### Sender Options
 
 ```bash
-# Terminal 1 - Start sender
-pipenv run python sender_continuous.py --fps 30
-
-# Terminal 2 - Show in matplotlib window
-pipenv run python visualizer_continuous.py --plot
+--folder PATH    # Folder containing images (generates test data if not specified)
+--name NAME      # Shared memory name (default: bundle_shm)
+--continuous     # Continuously update (default: send once)
+--fps N          # Update rate in FPS for continuous mode (default: 2)
 ```
 
-This opens a matplotlib window showing:
-- Real-time image updates (zero-copy from shared memory)
-- Live statistics overlay (FPS, mean, std, range)
-- 30 FPS default refresh rate (adjustable with `--fps`)
+### Visualizer Options
 
-## Troubleshooting
-
-### Visualizer shows old/static data
-
-If the visualizer shows images but they don't update, the sender might not be running. You may be reading **orphaned shared memory** from a previous run.
-
-**Fix:**
 ```bash
-# Clean up orphaned shared memory
-pipenv run python cleanup_shm.py --cleanup
-
-# Start fresh
-pipenv run python sender_continuous.py --fps 30
-pipenv run python visualizer_continuous.py --plot
+--name NAME       # Shared memory name (default: bundle_shm)
+--fps N           # Refresh rate (default: 10)
+--max-per-page N  # Max bundles per page (default: 15)
+--wait            # Wait for sender to start
 ```
 
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
+## Visualization Layout
 
-## 🛠️ Utilities
+```
+         Col 1       Col 2       Col 3
+       img1.jpg    img2.jpg    img3.jpg
 
-### cleanup_shm.py - Shared Memory Cleanup Utility
+Source  [image]     [image]     [image]
 
-Check and clean up orphaned shared memory blocks:
+gray    [gray]      [gray]      [gray]
 
+edges   [edges]     N/A         [edges]
+```
+
+- **Filenames** at top of each column
+- **Process names** on the left of each row
+- **Pagination** when many images (use ← → arrows)
+
+## Cleanup
+
+Remove shared memory blocks:
 ```bash
-# Check if shared memory exists
 pipenv run python cleanup_shm.py
-
-# Clean it up
-pipenv run python cleanup_shm.py --cleanup
-
-# Check specific name
-pipenv run python cleanup_shm.py --name my_shm --cleanup
 ```
 
-**When to use:**
-- After a sender crashes or exits with error
-- When visualizer shows static/old data
-- Before starting a fresh test session
+## Documentation
 
-## 🚀 Performance
-
-Real-world performance with 640×480 RGB images (~900KB):
-- **Sender**: 30+ FPS sustained
-- **Visualizer**: Zero-copy access (instant)
-- **Latency**: Sub-millisecond (memory access only)
-- **CPU Usage**: Minimal (no serialization/deserialization)
-
-## Use Cases
-
-Perfect for:
-- 🎥 Real-time video streaming between processes
-- 🤖 Computer vision pipelines (camera → processing → display)
-- 🎮 Game development (rendering → post-processing)
-- 📊 Live data visualization
-- 🔬 Scientific computing with large arrays
+See [IMAGEBUNDLE.md](IMAGEBUNDLE.md) for detailed documentation and API reference.
 
 ## Requirements
 
-- Python 3.8+ (for `multiprocessing.shared_memory`)
+- Python 3.12+
 - numpy
+- matplotlib
+- Pillow
 - pyarrow
 
-Install dependencies:
+Install with:
 ```bash
 pipenv install
 ```
-
-## Code Structure
-
-- `test_shm.py` - Quick test to verify setup
-- `sender.py` - Simple sender (static image)
-- `visualizer.py` - Simple visualizer (reads static image)
-- `sender_continuous.py` - Advanced sender (animated frames)
-- `visualizer_continuous.py` - Advanced visualizer (real-time stats)
