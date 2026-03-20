@@ -1,0 +1,24 @@
+[[source]]
+url = "https://${HV_PACKAGE_TOKEN}@git.heliovision.be:8443/simple"
+verify_ssl = true
+name = "hv-pypi"
+
+[packages]
+numpy = ">=1.26, <3"
+opencv-python = "~=4.12.0.88"
+loguru = "~=0.7.2"
+matplotlib= "==3.10.8"
+typer = "*"
+gradio = "==6.9.0"
+gradio-client = "*"
+flask = "*"
+pillow = "*"
+tornado = "*"
+requests = "*"
+pyarrow = "*"
+
+[dev-packages]
+pydantic = "==2.*,>=2.11.7"
+
+[requires]
+python_version = "3.12"
