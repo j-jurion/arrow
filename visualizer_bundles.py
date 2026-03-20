@@ -11,9 +11,18 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import time
 import sys
+from typing import List
+
 from imagebundle_shm import ImageBundleListReceiver
 from base import ImageBundle
-from typing import List
+from constants import (
+    DEFAULT_SHM_NAME,
+    DEFAULT_VISUALIZER_FPS,
+    DEFAULT_MAX_BUNDLES_PER_PAGE,
+    DEFAULT_WAIT_TIMEOUT,
+    STATUS_OK,
+    STATUS_ERROR
+)
 
 
 class BundleVisualizer:
@@ -21,7 +30,8 @@ class BundleVisualizer:
     Matplotlib visualizer for ImageBundle lists with column-based layout.
     """
     
-    def __init__(self, shm_name: str = "bundle_shm", fps: int = 10, max_bundles_per_page: int = 15):
+    def __init__(self, shm_name: str = DEFAULT_SHM_NAME, fps: int = DEFAULT_VISUALIZER_FPS, 
+                 max_bundles_per_page: int = DEFAULT_MAX_BUNDLES_PER_PAGE):
         """
         Initialize the visualizer.
         
@@ -41,7 +51,7 @@ class BundleVisualizer:
         
         # Get initial bundles to determine layout
         self.bundles = self.receiver.get()
-        print(f"[OK] Connected - {len(self.bundles)} bundles found")
+        print(f"{STATUS_OK} Connected - {len(self.bundles)} bundles found")
         
         # Analyze bundle structure
         self.num_bundles = len(self.bundles)
@@ -342,10 +352,10 @@ class BundleVisualizer:
             actual_fps = self.frame_count / elapsed if elapsed > 0 else 0
             print(f"\nDisplayed {self.frame_count} frames in {elapsed:.2f}s")
             print(f"Average FPS: {actual_fps:.2f}")
-            print("[OK] Visualizer cleanup complete")
+            print(f"{STATUS_OK} Visualizer cleanup complete")
 
 
-def wait_for_shm(shm_name: str, timeout: float = 30.0) -> bool:
+def wait_for_shm(shm_name: str, timeout: float = DEFAULT_WAIT_TIMEOUT) -> bool:
     """
     Wait for shared memory to be created.
     
@@ -356,19 +366,22 @@ def wait_for_shm(shm_name: str, timeout: float = 30.0) -> bool:
     Returns:
         True if found, False if timeout
     """
+    from multiprocessing import shared_memory
+    
     print(f"Waiting for shared memory '{shm_name}'...")
     start_time = time.time()
     
     while time.time() - start_time < timeout:
         try:
-            receiver = ImageBundleListReceiver(shm_name)
-            receiver.cleanup()
-            print(f"[OK] Found after {time.time() - start_time:.1f}s")
+            # Just check if shared memory exists, don't create receiver
+            shm = shared_memory.SharedMemory(name=shm_name)
+            shm.close()  # Just close, don't unlink
+            print(f"{STATUS_OK} Found after {time.time() - start_time:.1f}s")
             return True
         except FileNotFoundError:
             time.sleep(0.5)
     
-    print(f"[ERROR] Timeout after {timeout}s")
+    print(f"{STATUS_ERROR} Timeout after {timeout}s")
     return False
 
 
@@ -378,12 +391,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Visualize ImageBundle lists in column-based layout"
     )
-    parser.add_argument("--name", type=str, default="bundle_shm",
-                        help="Shared memory name (default: bundle_shm)")
-    parser.add_argument("--fps", type=int, default=10,
-                        help="Target FPS for visualization (default: 10)")
-    parser.add_argument("--max-per-page", type=int, default=15,
-                        help="Max bundles per page (default: 15)")
+    parser.add_argument("--name", type=str, default=DEFAULT_SHM_NAME,
+                        help=f"Shared memory name (default: {DEFAULT_SHM_NAME})")
+    parser.add_argument("--fps", type=int, default=DEFAULT_VISUALIZER_FPS,
+                        help=f"Target FPS for visualization (default: {DEFAULT_VISUALIZER_FPS})")
+    parser.add_argument("--max-per-page", type=int, default=DEFAULT_MAX_BUNDLES_PER_PAGE,
+                        help=f"Max bundles per page (default: {DEFAULT_MAX_BUNDLES_PER_PAGE})")
     parser.add_argument("--wait", action="store_true",
                         help="Wait for sender to create shared memory")
     

@@ -3,14 +3,24 @@ Sender for ImageBundle lists - Creates and sends multiple ImageBundles to shared
 """
 import numpy as np
 import time
+from typing import Optional, List
+from PIL import Image
+import os
+
 from imagebundle_shm import ImageBundleListSender
 from base import ImageBundle
+from constants import (
+    DEFAULT_SHM_NAME,
+    DEFAULT_SENDER_FPS,
+    DEFAULT_TEST_BUNDLE_COUNT,
+    DEFAULT_TEST_IMAGE_SIZE,
+    SUPPORTED_IMAGE_EXTENSIONS,
+    STATUS_OK,
+    STATUS_WARNING
+)
 
 
-from typing import Optional
-
-
-def generate_test_bundle(filename: str, size: tuple = (200, 200)) -> ImageBundle:
+def generate_test_bundle(filename: str, size: tuple[int, int] = DEFAULT_TEST_IMAGE_SIZE) -> ImageBundle:
     """
     Generate a test ImageBundle with source and processed images.
     
@@ -39,7 +49,7 @@ def generate_test_bundle(filename: str, size: tuple = (200, 200)) -> ImageBundle
     )
 
 
-def generate_test_bundles_from_folder(folder: str) -> list:
+def generate_test_bundles_from_folder(folder: str) -> List[ImageBundle]:
     """
     Generate ImageBundles from all images in a folder.
     
@@ -48,12 +58,9 @@ def generate_test_bundles_from_folder(folder: str) -> list:
     Returns:
         List of ImageBundles
     """
-    from PIL import Image
-    import os
-    
     bundles = []
     for filename in os.listdir(folder):
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+        if filename.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS):
             img_path = os.path.join(folder, filename)
             try:
                 img = Image.open(img_path).convert('RGB')
@@ -73,12 +80,13 @@ def generate_test_bundles_from_folder(folder: str) -> list:
                 )
                 bundles.append(bundle)
             except Exception as e:
-                print(f"[WARNING] Failed to process {filename}: {e}")
+                print(f"{STATUS_WARNING} Failed to process {filename}: {e}")
     
     return bundles
 
 
-def run_sender(folder: Optional[str] = None, shm_name: str = "bundle_shm", continuous: bool = False, fps: int = 2):
+def run_sender(folder: Optional[str] = None, shm_name: str = DEFAULT_SHM_NAME, 
+               continuous: bool = False, fps: int = DEFAULT_SENDER_FPS) -> None:
     """
     Run sender that sends ImageBundle list to shared memory.
     
@@ -104,8 +112,8 @@ def run_sender(folder: Optional[str] = None, shm_name: str = "bundle_shm", conti
             else:
                 # Fallback to test bundles
                 bundles = [
-                    generate_test_bundle(f"image_{i + 1}.jpg", size=(150, 150))
-                    for i in range(3)
+                    generate_test_bundle(f"image_{i + 1}.jpg")
+                    for i in range(DEFAULT_TEST_BUNDLE_COUNT)
                 ]
             
             num_bundles = len(bundles)
@@ -133,7 +141,7 @@ def run_sender(folder: Optional[str] = None, shm_name: str = "bundle_shm", conti
                       f"Elapsed: {elapsed:6.1f}s | "
                       f"FPS: {actual_fps:6.2f}", end='\r')
             else:
-                print(f"[OK] Sent {num_bundles} bundles")
+                print(f"{STATUS_OK} Sent {num_bundles} bundles")
                 print("\nKeeping shared memory alive...")
                 print("Press Ctrl+C to cleanup and exit\n")
             
@@ -153,7 +161,7 @@ def run_sender(folder: Optional[str] = None, shm_name: str = "bundle_shm", conti
         print("\n\nStopping...")
     finally:
         sender.cleanup()
-        print("[OK] Sender cleanup complete")
+        print(f"{STATUS_OK} Sender cleanup complete")
 
 
 if __name__ == "__main__":
@@ -162,12 +170,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Send ImageBundle lists via shared memory")
     parser.add_argument("--folder", type=str, default=None,
                         help="Folder containing images (if not specified, generates test bundles)")
-    parser.add_argument("--name", type=str, default="bundle_shm",
-                        help="Shared memory name (default: bundle_shm)")
+    parser.add_argument("--name", type=str, default=DEFAULT_SHM_NAME,
+                        help=f"Shared memory name (default: {DEFAULT_SHM_NAME})")
     parser.add_argument("--continuous", action="store_true",
                         help="Continuously update (default: send once and wait)")
-    parser.add_argument("--fps", type=int, default=2, 
-                        help="Update rate in FPS when continuous (default: 2)")
+    parser.add_argument("--fps", type=int, default=DEFAULT_SENDER_FPS, 
+                        help=f"Update rate in FPS when continuous (default: {DEFAULT_SENDER_FPS})")
     
     args = parser.parse_args()
     run_sender(args.folder, args.name, args.continuous, args.fps)

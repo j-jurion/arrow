@@ -8,8 +8,10 @@ import pyarrow as pa
 from multiprocessing import shared_memory
 import struct
 import pickle
+import gc
 from typing import List
 from base import ImageBundle
+from constants import DEFAULT_SHM_SIZE, STATUS_OK
 
 
 class ImageBundleListSender:
@@ -17,7 +19,7 @@ class ImageBundleListSender:
     Manages shared memory for sending lists of ImageBundle objects.
     """
     
-    def __init__(self, name: str, max_size: int = 100_000_000):
+    def __init__(self, name: str, max_size: int = DEFAULT_SHM_SIZE):
         """
         Create or reuse shared memory block for ImageBundle list data.
         
@@ -42,10 +44,14 @@ class ImageBundleListSender:
             # Note: We can't verify the size of existing shared memory,
             # so we just reuse whatever size it has
         
+        # Ensure buffer is valid before creating views
+        if self.shm.buf is None:
+            raise RuntimeError("Failed to create shared memory buffer")
+        
         self.arrow_buffer = pa.py_buffer(self.shm.buf)
         self.buf_view = memoryview(self.shm.buf)
         
-        print(f"[OK] Created shared memory '{name}'")
+        print(f"{STATUS_OK} Created shared memory '{name}'")
         print(f"  - Max size: {max_size:,} bytes")
     
     def send(self, bundles: List[ImageBundle]):
@@ -85,9 +91,19 @@ class ImageBundleListSender:
     def cleanup(self):
         """Clean up shared memory resources"""
         if not self.closed:
-            # Delete references to allow proper cleanup
+            # Delete our references first
             del self.buf_view
             del self.arrow_buffer
+            
+            # Force garbage collection to release references
+            gc.collect()
+            
+            # Release the shared memory's internal buffer
+            try:
+                if hasattr(self.shm, '_buf') and self.shm._buf is not None:
+                    self.shm._buf.release()
+            except (BufferError, Exception):
+                pass
             
             try:
                 self.shm.close()
@@ -134,10 +150,14 @@ class ImageBundleListReceiver:
                 "Make sure the sender is running first."
             )
         
+        # Ensure buffer is valid before creating views
+        if self.shm.buf is None:
+            raise RuntimeError("Failed to open shared memory buffer")
+        
         self.arrow_buffer = pa.py_buffer(self.shm.buf)
         self.buf_view = memoryview(self.shm.buf)
         
-        print(f"[OK] Opened shared memory '{name}'")
+        print(f"{STATUS_OK} Opened shared memory '{name}'")
     
     def get(self) -> List[ImageBundle]:
         """
@@ -164,9 +184,19 @@ class ImageBundleListReceiver:
     def cleanup(self):
         """Clean up shared memory resources"""
         if not self.closed:
-            # Delete references to allow proper cleanup
+            # Delete our references first
             del self.buf_view
             del self.arrow_buffer
+            
+            # Force garbage collection to release references
+            gc.collect()
+            
+            # Release the shared memory's internal buffer
+            try:
+                if hasattr(self.shm, '_buf') and self.shm._buf is not None:
+                    self.shm._buf.release()
+            except (BufferError, Exception):
+                pass
             
             try:
                 self.shm.close()
@@ -199,24 +229,40 @@ if __name__ == "__main__":
         ImageBundle(
             source_image=np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8),
             processed_images={
+                "grayscale": np.random.randint(0, 255, (100, 100), dtype=np.uint8),
                 "edges": np.random.randint(0, 255, (100, 100), dtype=np.uint8),
             },
             filename="test2.jpg"
         ),
     ]
     
-    # Send
-    with ImageBundleListSender("test_bundle_shm") as sender:
-        sender.send(test_bundles)
-        print(f"\n[OK] Sent {len(test_bundles)} bundles")
-        
-        # Receive
-        with ImageBundleListReceiver("test_bundle_shm") as receiver:
-            received = receiver.get()
-            print(f"[OK] Received {len(received)} bundles")
-            
-            for i, bundle in enumerate(received):
-                print(f"\nBundle {i + 1}:")
-                print(f"  {bundle}")
+    test_shm_name = "test_bundle_shm"
     
-    print("\n[OK] Test completed successfully")
+    # Test sender
+    print("Creating sender...")
+    sender = ImageBundleListSender(test_shm_name)
+    
+    print(f"\nSending {len(test_bundles)} bundles...")
+    sender.send(test_bundles)
+    print(f"{STATUS_OK} Bundles sent\n")
+    
+    # Test receiver
+    print("Creating receiver...")
+    receiver = ImageBundleListReceiver(test_shm_name)
+    
+    print("\nReceiving bundles...")
+    received_bundles = receiver.get()
+    print(f"{STATUS_OK} Received {len(received_bundles)} bundles\n")
+    
+    # Verify
+    print("Verifying data...")
+    for i, bundle in enumerate(received_bundles):
+        print(f"  Bundle {i + 1}: {bundle.filename}")
+        print(f"    Source shape: {bundle.source_image.shape}")
+        print(f"    Processed: {list(bundle.processed_images.keys())}")
+    
+    # Cleanup
+    print("\nCleaning up...")
+    receiver.cleanup()
+    sender.cleanup()
+    print(f"{STATUS_OK} Test complete")
