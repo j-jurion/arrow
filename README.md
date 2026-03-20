@@ -85,14 +85,14 @@ pipenv run python visualizer_bundles.py --max-per-page 10
 pipenv run python sender_bundles.py
 ```
 
-### Continuous Mode
+### Multiple Runs
 
 ```bash
 # Terminal 1 - Start visualizer
 pipenv run python visualizer_bundles.py
 
-# Terminal 2 - Continuously update at 5 FPS
-pipenv run python sender_bundles.py --folder /path/to/images --continuous --fps 5
+# Terminal 2 - Send bundles (run multiple times to update)
+pipenv run python sender_bundles.py --folder /path/to/images
 ```
 
 ## Programmatic Usage
@@ -164,8 +164,6 @@ inverted    [inverted img]  N/A             [inverted img]
 ```bash
 --folder PATH    # Folder with images (generates test data if not specified)
 --name NAME      # Shared memory name (default: bundle_shm)
---continuous     # Continuously update (default: send once)
---fps N          # Update rate in FPS when continuous (default: 2)
 ```
 
 **Supported formats:** `.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`
@@ -194,7 +192,6 @@ Default values are defined in [constants.py](constants.py):
 ```python
 DEFAULT_SHM_NAME = "bundle_shm"
 DEFAULT_SHM_SIZE = 100_000_000  # 100 MB
-DEFAULT_SENDER_FPS = 2
 DEFAULT_VISUALIZER_FPS = 10
 DEFAULT_MAX_BUNDLES_PER_PAGE = 15
 ```
@@ -249,48 +246,9 @@ visualizer = BundleVisualizer("my_shm", max_size=200_000_000)  # 200 MB
 ## Stopping
 
 - **Visualizer**: Press **ESC** or close the matplotlib window - automatically cleans up shared memory
-- **Sender**: Press **Ctrl+C** - closes connection without unlinking memory
+- **Sender**: The sender exits automatically after sending bundles
 
 The visualizer manages shared memory cleanup. When you close it, memory is automatically freed.
---fps N          # Update rate in FPS for continuous mode (default: 2)
-```
-
-### Visualizer Options
-
-```bash
---name NAME       # Shared memory name (default: bundle_shm)
---fps N           # Refresh rate (default: 10)
---max-per-page N  # Max bundles per page (default: 15)
---wait            # Wait for sender to start
-```
-
-## Visualization Layout
-
-```
-         Col 1       Col 2       Col 3
-       img1.jpg    img2.jpg    img3.jpg
-
-Source  [image]     [image]     [image]
-
-gray    [gray]      [gray]      [gray]
-
-edges   [edges]     N/A         [edges]
-```
-
-- **Filenames** at top of each column
-- **Process names** on the left of each row
-- **Pagination** when many images (use ← → arrows)
-
-## Cleanup
-
-Remove shared memory blocks:
-```bash
-pipenv run python cleanup_shm.py
-```
-
-## Documentation
-
-See [IMAGEBUNDLE.md](IMAGEBUNDLE.md) for detailed documentation and API reference.
 
 ## Requirements
 
@@ -299,6 +257,8 @@ See [IMAGEBUNDLE.md](IMAGEBUNDLE.md) for detailed documentation and API referenc
 - matplotlib
 - Pillow
 - pyarrow
+- loguru
+- typer
 
 Install with:
 ```bash

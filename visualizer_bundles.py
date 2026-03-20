@@ -19,7 +19,6 @@ from constants import (
     DEFAULT_SHM_NAME,
     DEFAULT_VISUALIZER_FPS,
     DEFAULT_MAX_BUNDLES_PER_PAGE,
-    DEFAULT_WAIT_TIMEOUT
 )
 
 
@@ -60,17 +59,6 @@ class BundleVisualizer:
         self.num_bundles = len(self.bundles)
         self.process_names = self._get_all_process_names()
         self.num_processes = len(self.process_names)
-        
-        # Track source image shape for detecting dimension changes
-        self._last_source_shape = self.bundles[0].source_image.shape if self.bundles else None
-        
-        # Track processed image dimensions for detecting 2D/3D changes
-        self._last_processed_dims = {}
-        if self.bundles:
-            for pname in self.process_names:
-                if pname in self.bundles[0].processed_images:
-                    img = self.bundles[0].processed_images[pname]
-                    self._last_processed_dims[pname] = (img.shape, img.ndim)
         
         logger.info(f"  - Bundles: {self.num_bundles}")
         logger.info(f"  - Processes: {self.process_names}")
@@ -323,8 +311,8 @@ class BundleVisualizer:
                 for col_idx, bundle in enumerate(page_bundles):
                     if (process_name, col_idx) in self.img_objects:
                         if process_name in bundle.processed_images:
+                            proc_img = bundle.processed_images[process_name]
                             try:
-                                proc_img = bundle.processed_images[process_name]
                                 img_obj = self.img_objects[(process_name, col_idx)]
                                 img_obj.set_data(proc_img)
                             except Exception as e:
@@ -394,9 +382,9 @@ class BundleVisualizer:
                 gc.collect()
                 
                 # Release the internal buffer if it exists
-                if hasattr(self.shared_memory, '_buf') and self.shared_memory._buf is not None:
+                if hasattr(self.shared_memory, '_buf') and self.shared_memory._buf is not None:  # type: ignore
                     try:
-                        self.shared_memory._buf.release()
+                        self.shared_memory._buf.release()  # type: ignore
                     except (BufferError, Exception):
                         pass
                 
@@ -413,34 +401,6 @@ class BundleVisualizer:
             logger.success("Visualizer cleanup complete")
 
 
-def wait_for_shm(shm_name: str, timeout: float = DEFAULT_WAIT_TIMEOUT) -> bool:
-    """
-    Wait for shared memory to be created.
-    
-    NOTE: This function is deprecated - visualizer now creates the memory.
-    Kept for backwards compatibility.
-    
-    Args:
-        shm_name: Name of shared memory to wait for
-        timeout: Maximum seconds to wait
-        
-    Returns:
-        True if found, False if timeout
-    """
-    from multiprocessing import shared_memory
-    
-    logger.warning("wait_for_shm is deprecated - visualizer creates memory on startup")
-    logger.info(f"Checking if shared memory '{shm_name}' exists...")
-    
-    try:
-        shm = shared_memory.SharedMemory(name=shm_name)
-        shm.close()
-        logger.success(f"Shared memory '{shm_name}' already exists")
-        return True
-    except FileNotFoundError:
-        logger.info(f"Shared memory '{shm_name}' does not exist - will be created")
-        return False
-
 
 if __name__ == "__main__":
     import typer
@@ -449,13 +409,8 @@ if __name__ == "__main__":
         name: str = typer.Option(DEFAULT_SHM_NAME, help="Shared memory name"),
         fps: int = typer.Option(DEFAULT_VISUALIZER_FPS, help="Target FPS for visualization"),
         max_per_page: int = typer.Option(DEFAULT_MAX_BUNDLES_PER_PAGE, "--max-per-page", help="Max bundles per page"),
-        wait: bool = typer.Option(False, help="Check if shared memory exists (deprecated)")
     ):
         """Visualize ImageBundle lists in column-based layout."""
-        # Check/warn about existing memory
-        if wait:
-            wait_for_shm(name)
-        
         # Create and run visualizer (creates shared memory)
         try:
             visualizer = BundleVisualizer(name, fps, max_per_page)

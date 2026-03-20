@@ -34,6 +34,11 @@ def create_shared_memory(name: str, max_size: int = DEFAULT_SHM_SIZE) -> shared_
     try:
         shm = shared_memory.SharedMemory(create=True, size=max_size, name=name)
         
+        # Verify buffer was created
+        if shm.buf is None:
+            shm.unlink()
+            raise RuntimeError("Failed to create shared memory buffer")
+        
         # Initialize with empty list so it's always valid
         empty_data = pickle.dumps([])
         data_len = len(empty_data)
@@ -129,8 +134,8 @@ class ImageBundleListSender:
             
             # Release the shared memory's internal buffer
             try:
-                if hasattr(self.shm, '_buf') and self.shm._buf is not None:
-                    self.shm._buf.release()
+                if hasattr(self.shm, '_buf') and self.shm._buf is not None:  # type: ignore
+                    self.shm._buf.release()  # type: ignore
             except (BufferError, Exception):
                 pass
             
@@ -218,8 +223,8 @@ class ImageBundleListReceiver:
             
             # Release the shared memory's internal buffer
             try:
-                if hasattr(self.shm, '_buf') and self.shm._buf is not None:
-                    self.shm._buf.release()
+                if hasattr(self.shm, '_buf') and self.shm._buf is not None:  # type: ignore
+                    self.shm._buf.release()  # type: ignore
             except (BufferError, Exception):
                 pass
             
