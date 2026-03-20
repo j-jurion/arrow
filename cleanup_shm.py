@@ -3,7 +3,9 @@ Utility to check and clean up orphaned shared memory blocks
 """
 from multiprocessing import shared_memory
 import sys
-from constants import DEFAULT_SHM_NAME, STATUS_OK, STATUS_ERROR
+from loguru import logger
+
+from constants import DEFAULT_SHM_NAME
 
 
 def check_shared_memory(name: str = DEFAULT_SHM_NAME) -> bool:
@@ -18,12 +20,12 @@ def check_shared_memory(name: str = DEFAULT_SHM_NAME) -> bool:
     """
     try:
         shm = shared_memory.SharedMemory(name=name)
-        print(f"{STATUS_OK} Shared memory '{name}' exists")
-        print(f"  - Size: {shm.size:,} bytes")
+        logger.success(f"Shared memory '{name}' exists")
+        logger.info(f"  - Size: {shm.size:,} bytes")
         shm.close()
         return True
     except FileNotFoundError:
-        print(f"{STATUS_ERROR} Shared memory '{name}' does not exist")
+        logger.error(f"Shared memory '{name}' does not exist")
         return False
 
 
@@ -42,13 +44,13 @@ def cleanup_shared_memory(name: str = DEFAULT_SHM_NAME) -> bool:
         size = shm.size
         shm.close()
         shm.unlink()
-        print(f"{STATUS_OK} Cleaned up shared memory '{name}' ({size:,} bytes)")
+        logger.success(f"Cleaned up shared memory '{name}' ({size:,} bytes)")
         return True
     except FileNotFoundError:
-        print(f"{STATUS_ERROR} Shared memory '{name}' does not exist - nothing to clean")
+        logger.error(f"Shared memory '{name}' does not exist - nothing to clean")
         return False
     except Exception as e:
-        print(f"{STATUS_ERROR} Error cleaning up: {e}")
+        logger.error(f"Error cleaning up: {e}")
         return False
 
 
@@ -72,10 +74,10 @@ if __name__ == "__main__":
         sys.exit(0 if exists else 1)
     else:
         # Default: check and offer to cleanup
-        print(f"Checking shared memory '{args.name}'...\n")
+        logger.info(f"Checking shared memory '{args.name}'...\n")
         if check_shared_memory(args.name):
-            print("\nThis might be orphaned from a previous run.")
-            print("Run with --cleanup to remove it:")
-            print(f"  pipenv run python cleanup_shm.py --name {args.name} --cleanup")
+            logger.info("\nThis might be orphaned from a previous run.")
+            logger.info("Run with --cleanup to remove it:")
+            logger.info(f"  pipenv run python cleanup_shm.py --name {args.name} --cleanup")
         else:
-            print("\nAll clear! No orphaned shared memory found.")
+            logger.info("\nAll clear! No orphaned shared memory found.")

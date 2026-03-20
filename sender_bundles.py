@@ -6,6 +6,7 @@ import time
 from typing import Optional, List
 from PIL import Image
 import os
+from loguru import logger
 
 from imagebundle_shm import ImageBundleListSender
 from base import ImageBundle
@@ -14,9 +15,7 @@ from constants import (
     DEFAULT_SENDER_FPS,
     DEFAULT_TEST_BUNDLE_COUNT,
     DEFAULT_TEST_IMAGE_SIZE,
-    SUPPORTED_IMAGE_EXTENSIONS,
-    STATUS_OK,
-    STATUS_WARNING
+    SUPPORTED_IMAGE_EXTENSIONS
 )
 
 
@@ -80,7 +79,7 @@ def generate_test_bundles_from_folder(folder: str) -> List[ImageBundle]:
                 )
                 bundles.append(bundle)
             except Exception as e:
-                print(f"{STATUS_WARNING} Failed to process {filename}: {e}")
+                logger.warning(f"Failed to process {filename}: {e}")
     
     return bundles
 
@@ -118,15 +117,15 @@ def run_sender(folder: Optional[str] = None, shm_name: str = DEFAULT_SHM_NAME,
             
             num_bundles = len(bundles)
             
-            # First frame - print startup message
+            # First frame - log startup message
             if frame_count == 0:
                 if continuous:
-                    print(f"\nLoaded {num_bundles} ImageBundles from {folder if folder else 'generated test data'}")
-                    print(f"Sending continuously at {fps} FPS...")
-                    print("Press Ctrl+C to stop\n")
+                    logger.info(f"\nLoaded {num_bundles} ImageBundles from {folder if folder else 'generated test data'}")
+                    logger.info(f"Sending continuously at {fps} FPS...")
+                    logger.info("Press Ctrl+C to stop\n")
                 else:
-                    print(f"\nLoaded {num_bundles} ImageBundles from {folder if folder else 'generated test data'}")
-                    print("Sending to shared memory...")
+                    logger.info(f"\nLoaded {num_bundles} ImageBundles from {folder if folder else 'generated test data'}")
+                    logger.info("Sending to shared memory...")
             
             # Send to shared memory
             sender.send(bundles)
@@ -136,14 +135,15 @@ def run_sender(folder: Optional[str] = None, shm_name: str = DEFAULT_SHM_NAME,
             
             if continuous:
                 actual_fps = frame_count / elapsed if elapsed > 0 else 0
+                # Use raw print for status line with carriage return
                 print(f"Frame {frame_count:5d} | "
                       f"Bundles: {num_bundles} | "
                       f"Elapsed: {elapsed:6.1f}s | "
                       f"FPS: {actual_fps:6.2f}", end='\r')
             else:
-                print(f"{STATUS_OK} Sent {num_bundles} bundles")
-                print("\nKeeping shared memory alive...")
-                print("Press Ctrl+C to cleanup and exit\n")
+                logger.success(f"Sent {num_bundles} bundles")
+                logger.info("\nKeeping shared memory alive...")
+                logger.info("Press Ctrl+C to cleanup and exit\n")
             
             # If not continuous, send once and wait
             if not continuous:
@@ -158,10 +158,10 @@ def run_sender(folder: Optional[str] = None, shm_name: str = DEFAULT_SHM_NAME,
                 time.sleep(sleep_time)
         
     except KeyboardInterrupt:
-        print("\n\nStopping...")
+        logger.info("\n\nStopping...")
     finally:
         sender.cleanup()
-        print(f"{STATUS_OK} Sender cleanup complete")
+        logger.success("Sender cleanup complete")
 
 
 if __name__ == "__main__":

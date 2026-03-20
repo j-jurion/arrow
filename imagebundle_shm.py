@@ -10,8 +10,10 @@ import struct
 import pickle
 import gc
 from typing import List
+from loguru import logger
+
 from base import ImageBundle
-from constants import DEFAULT_SHM_SIZE, STATUS_OK
+from constants import DEFAULT_SHM_SIZE
 
 
 class ImageBundleListSender:
@@ -51,8 +53,8 @@ class ImageBundleListSender:
         self.arrow_buffer = pa.py_buffer(self.shm.buf)
         self.buf_view = memoryview(self.shm.buf)
         
-        print(f"{STATUS_OK} Created shared memory '{name}'")
-        print(f"  - Max size: {max_size:,} bytes")
+        logger.success(f"Created shared memory '{name}'")
+        logger.info(f"  - Max size: {max_size:,} bytes")
     
     def send(self, bundles: List[ImageBundle]):
         """
@@ -157,7 +159,7 @@ class ImageBundleListReceiver:
         self.arrow_buffer = pa.py_buffer(self.shm.buf)
         self.buf_view = memoryview(self.shm.buf)
         
-        print(f"{STATUS_OK} Opened shared memory '{name}'")
+        logger.success(f"Opened shared memory '{name}'")
     
     def get(self) -> List[ImageBundle]:
         """
@@ -214,7 +216,7 @@ class ImageBundleListReceiver:
 
 if __name__ == "__main__":
     # Test example
-    print("Testing ImageBundleListSender/Receiver\n")
+    logger.info("Testing ImageBundleListSender/Receiver\n")
     
     # Create test bundles
     test_bundles = [
@@ -239,30 +241,30 @@ if __name__ == "__main__":
     test_shm_name = "test_bundle_shm"
     
     # Test sender
-    print("Creating sender...")
+    logger.info("Creating sender...")
     sender = ImageBundleListSender(test_shm_name)
     
-    print(f"\nSending {len(test_bundles)} bundles...")
+    logger.info(f"\nSending {len(test_bundles)} bundles...")
     sender.send(test_bundles)
-    print(f"{STATUS_OK} Bundles sent\n")
+    logger.success("Bundles sent\n")
     
     # Test receiver
-    print("Creating receiver...")
+    logger.info("Creating receiver...")
     receiver = ImageBundleListReceiver(test_shm_name)
     
-    print("\nReceiving bundles...")
+    logger.info("\nReceiving bundles...")
     received_bundles = receiver.get()
-    print(f"{STATUS_OK} Received {len(received_bundles)} bundles\n")
+    logger.success(f"Received {len(received_bundles)} bundles\n")
     
     # Verify
-    print("Verifying data...")
+    logger.info("Verifying data...")
     for i, bundle in enumerate(received_bundles):
-        print(f"  Bundle {i + 1}: {bundle.filename}")
-        print(f"    Source shape: {bundle.source_image.shape}")
-        print(f"    Processed: {list(bundle.processed_images.keys())}")
+        logger.info(f"  Bundle {i + 1}: {bundle.filename}")
+        logger.info(f"    Source shape: {bundle.source_image.shape}")
+        logger.info(f"    Processed: {list(bundle.processed_images.keys())}")
     
     # Cleanup
-    print("\nCleaning up...")
+    logger.info("\nCleaning up...")
     receiver.cleanup()
     sender.cleanup()
-    print(f"{STATUS_OK} Test complete")
+    logger.success("Test complete")

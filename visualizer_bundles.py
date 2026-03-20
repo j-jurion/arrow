@@ -12,6 +12,7 @@ from matplotlib.gridspec import GridSpec
 import time
 import sys
 from typing import List
+from loguru import logger
 
 from imagebundle_shm import ImageBundleListReceiver
 from base import ImageBundle
@@ -19,9 +20,7 @@ from constants import (
     DEFAULT_SHM_NAME,
     DEFAULT_VISUALIZER_FPS,
     DEFAULT_MAX_BUNDLES_PER_PAGE,
-    DEFAULT_WAIT_TIMEOUT,
-    STATUS_OK,
-    STATUS_ERROR
+    DEFAULT_WAIT_TIMEOUT
 )
 
 
@@ -46,20 +45,20 @@ class BundleVisualizer:
         self.max_bundles_per_page = max_bundles_per_page
         
         # Connect to shared memory
-        print(f"Connecting to shared memory '{shm_name}'...")
+        logger.info(f"Connecting to shared memory '{shm_name}'...")
         self.receiver = ImageBundleListReceiver(shm_name)
         
         # Get initial bundles to determine layout
         self.bundles = self.receiver.get()
-        print(f"{STATUS_OK} Connected - {len(self.bundles)} bundles found")
+        logger.success(f"Connected - {len(self.bundles)} bundles found")
         
         # Analyze bundle structure
         self.num_bundles = len(self.bundles)
         self.process_names = self._get_all_process_names()
         self.num_processes = len(self.process_names)
         
-        print(f"  - Bundles: {self.num_bundles}")
-        print(f"  - Processes: {self.process_names}")
+        logger.info(f"  - Bundles: {self.num_bundles}")
+        logger.info(f"  - Processes: {self.process_names}")
         
         # Calculate pagination
         self._calculate_pagination()
@@ -90,7 +89,7 @@ class BundleVisualizer:
         self.total_pages = (self.num_bundles + self.bundles_per_page - 1) // self.bundles_per_page
         
         if self.total_pages > 1:
-            print(f"  - Pagination: {self.bundles_per_page} bundles/page, {self.total_pages} pages total")
+            logger.info(f"  - Pagination: {self.bundles_per_page} bundles/page, {self.total_pages} pages total")
     
     def _get_current_page_bundles(self) -> List[ImageBundle]:
         """Get bundles for the current page."""
@@ -305,15 +304,15 @@ class BundleVisualizer:
             self.frame_count += 1
             
         except Exception as e:
-            print(f"\nError updating frame: {e}")
+            logger.error(f"\nError updating frame: {e}")
     
     def run(self):
         """Run the visualization loop."""
         try:
-            print(f"\nVisualizing at {self.fps} FPS")
+            logger.info(f"\nVisualizing at {self.fps} FPS")
             if self.total_pages > 1:
-                print(f"Pages: {self.total_pages} (use arrow keys <- -> to navigate)")
-            print("Press ESC to close window, or Ctrl+C to exit\n")
+                logger.info(f"Pages: {self.total_pages} (use arrow keys <- -> to navigate)")
+            logger.info("Press ESC to close window, or Ctrl+C to exit\n")
             
             while plt.fignum_exists(self.fig.number):
                 frame_start = time.time()
@@ -332,6 +331,7 @@ class BundleVisualizer:
                 if self.total_pages > 1:
                     status += f" | Page {self.current_page + 1}/{self.total_pages}"
                 status += f" | FPS: {actual_fps:6.2f}"
+                # Use raw print for status line with carriage return
                 print(status, end='\r')
                 
                 # Maintain target FPS
@@ -340,19 +340,19 @@ class BundleVisualizer:
                 if sleep_time > 0:
                     time.sleep(sleep_time)
             
-            print("\nWindow closed by user")
+            logger.info("\nWindow closed by user")
             
         except KeyboardInterrupt:
-            print("\n\nStopping visualization...")
+            logger.info("\n\nStopping visualization...")
         finally:
             plt.close(self.fig)
             self.receiver.cleanup()
             
             elapsed = time.time() - self.start_time
             actual_fps = self.frame_count / elapsed if elapsed > 0 else 0
-            print(f"\nDisplayed {self.frame_count} frames in {elapsed:.2f}s")
-            print(f"Average FPS: {actual_fps:.2f}")
-            print(f"{STATUS_OK} Visualizer cleanup complete")
+            logger.info(f"\nDisplayed {self.frame_count} frames in {elapsed:.2f}s")
+            logger.info(f"Average FPS: {actual_fps:.2f}")
+            logger.success("Visualizer cleanup complete")
 
 
 def wait_for_shm(shm_name: str, timeout: float = DEFAULT_WAIT_TIMEOUT) -> bool:
@@ -368,7 +368,7 @@ def wait_for_shm(shm_name: str, timeout: float = DEFAULT_WAIT_TIMEOUT) -> bool:
     """
     from multiprocessing import shared_memory
     
-    print(f"Waiting for shared memory '{shm_name}'...")
+    logger.info(f"Waiting for shared memory '{shm_name}'...")
     start_time = time.time()
     
     while time.time() - start_time < timeout:
@@ -376,12 +376,12 @@ def wait_for_shm(shm_name: str, timeout: float = DEFAULT_WAIT_TIMEOUT) -> bool:
             # Just check if shared memory exists, don't create receiver
             shm = shared_memory.SharedMemory(name=shm_name)
             shm.close()  # Just close, don't unlink
-            print(f"{STATUS_OK} Found after {time.time() - start_time:.1f}s")
+            logger.success(f"Found after {time.time() - start_time:.1f}s")
             return True
         except FileNotFoundError:
             time.sleep(0.5)
     
-    print(f"{STATUS_ERROR} Timeout after {timeout}s")
+    logger.error(f"Timeout after {timeout}s")
     return False
 
 
@@ -405,7 +405,7 @@ if __name__ == "__main__":
     # Wait for sender if requested
     if args.wait:
         if not wait_for_shm(args.name):
-            print("Make sure the sender is running.")
+            logger.error("Make sure the sender is running.")
             sys.exit(1)
     
     # Create and run visualizer
@@ -413,8 +413,8 @@ if __name__ == "__main__":
         visualizer = BundleVisualizer(args.name, args.fps, args.max_per_page)
         visualizer.run()
     except FileNotFoundError:
-        print("\n[ERROR] Shared memory '{args.name}' not found!")
-        print("  Options:")
-        print("    1. Start the sender first: python sender_bundles.py")
-        print("    2. Use --wait flag to wait for sender")
+        logger.error(f"\nShared memory '{args.name}' not found!")
+        logger.info("  Options:")
+        logger.info("    1. Start the sender first: python sender_bundles.py")
+        logger.info("    2. Use --wait flag to wait for sender")
         sys.exit(1)
